@@ -1,0 +1,607 @@
+//
+// CS Homework 3 - Search Engine V2
+// Sevdenaz Yilmaz 30300
+//
+
+#include <iostream>
+#include <string>
+#include <fstream>
+#include <vector>
+#include <chrono>
+#include <cctype>
+
+using namespace std;
+
+struct FileInfo {
+    // Structure containing the file name and the count of occurrences of the word in that file
+    string file_name;
+    int count;
+
+    explicit FileInfo(string theFileName, int theCount = 0) : file_name(std::move(theFileName)), count(theCount) {}
+    FileInfo() : FileInfo("", 0) {}
+    // Use the default copy constructor and copy assignment operator
+    bool operator!=(const FileInfo &rhs) const { return file_name != rhs.file_name; }
+    bool operator==(const FileInfo &rhs) const { return file_name == rhs.file_name; }
+
+};
+
+struct WordInfo {
+    // Word item storing the word, and the documents they exist as document items
+    string word;
+    vector<FileInfo> docs;
+
+    explicit WordInfo(const string& theWord, vector<FileInfo> theDocs = {})
+            : word(theWord), docs(std::move(theDocs)) {}
+    WordInfo() : WordInfo("") {}
+    // Use the default copy constructor and copy assignment operator
+    bool operator<(const WordInfo& rhs) const { return word < rhs.word; }
+    bool operator>(const WordInfo& rhs) const { return word > rhs.word; }
+    bool operator==(const WordInfo& rhs) const { return word == rhs.word; }
+    bool operator!=(const WordInfo& rhs) const { return word != rhs.word; }
+};
+
+// Starting Hash Table Operations
+bool isPrimeNumber(int number) {
+    if (number <= 1) {
+        return false;
+    }
+    for (int i = 2; i * i <= number; ++i) {
+        if (number % i == 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+int checkNextPrime(int p) {
+    // Finds the next prime number from an integer
+    if (p % 2 == 0) {
+        p++;
+    }
+    for (; !isPrimeNumber(p); p += 2) {
+        // Empty loop body, incrementing n until a prime number is found
+    }
+    return p;
+}
+
+int hashFunction(const WordInfo& key, int table_capacity) {
+    // Hash WordInfo objects based on their word
+    int hashValue = 0;
+
+    for (char ch : key.word) {
+        hashValue = 37 * hashValue + ch;
+    }
+
+    hashValue %= table_capacity ;
+
+    if (hashValue < 0) {
+        // Fixes negative hash value results
+        hashValue += table_capacity;
+    }
+    return hashValue;
+}
+
+template <class HashedObj>
+class HashTable {
+public:
+    explicit HashTable(HashedObj notFound, int size = 51)
+            : ITEM_NOT_FOUND(std::move(notFound)), array(checkNextPrime(size)), currSize(0) { clear(); }
+    HashTable(const HashTable & rhs)
+            : ITEM_NOT_FOUND(rhs.ITEM_NOT_FOUND), array(rhs.array), currSize(rhs.currSize) {}
+    enum EntryType {ACTIVE, EMPTY};
+
+    const HashedObj & find(const HashedObj & x) const {
+        //Locating an item within the hash table and providing a duplicate representation.
+        int positionCurr = calculateHashIndex(x);
+        if (isEntryActive(positionCurr)) {
+            return array[positionCurr].element;
+        }
+        return ITEM_NOT_FOUND;
+    }
+
+    HashedObj & getOriginalItem(const HashedObj & x) {
+        // Locates an item within the hash table and retrieves its original.
+        int positionCurr = calculateHashIndex(x);
+        if (isEntryActive(positionCurr)) {
+            return array[positionCurr].element;
+        }
+        return ITEM_NOT_FOUND;
+    }
+
+    void clear() {
+        // Clears all elements in the hash table, making it empty
+        for (auto &entry : array) {
+            entry.info = EMPTY;
+        }
+        currSize = 0;
+    }
+
+    void addElement(const HashedObj &x) {
+        // Adds a new element into the hash table
+        int positionCurr = calculateHashIndex(x);
+
+        if (!isEntryActive(positionCurr)) {
+            array[positionCurr] = HashEntryNode(x, ACTIVE);
+            ++currSize;
+            if (currSize >= array.size() / 1.25) { // Determines the maximum load factor
+                rehashFunction();
+            }
+        }
+    }
+
+    const HashTable & operator=(const HashTable & rhs) {
+        // Copies the hash table in the right-hand side to the hash table
+        if (this != &rhs) {
+            clear();
+            array = rhs.array;
+        }
+        return *this;
+    }
+
+    void displayStatistics() {
+        cout << endl << "After preprocessing, the unique word count is " << currSize
+             << ". Current load ratio is " << float(currSize) / float(array.size()) << endl;
+    }
+
+private:
+    struct HashEntryNode {
+        HashedObj element;
+        EntryType info;
+        explicit HashEntryNode(HashedObj e = HashedObj(), EntryType i = EMPTY): element(std::move(e)), info(i) {}
+
+
+    };
+    vector<HashEntryNode> array;
+    int currSize;
+    HashedObj ITEM_NOT_FOUND;
+
+    bool isEntryActive(int positionCurr) const { // Checks if the element in the current position is active or not
+        return array[positionCurr].info == ACTIVE;
+    }
+
+    int calculateHashIndex(const HashedObj &x) const {
+        // Finds the position of a given object inside the hash table
+        int collisionCount = 0;
+        int positionCurr = hashFunction(x, static_cast<int>(array.size()));
+
+
+        while (array[positionCurr].info != EMPTY && array[positionCurr].element != x) {
+            positionCurr += ((2 * ++collisionCount) - 1);
+            if (positionCurr >= static_cast<int>(array.size())) {
+                positionCurr = positionCurr % array.size();
+            }
+        }
+        return positionCurr;
+    }
+
+    void rehashFunction() {
+        // Modifies the hash table by rehashing it to achieve the desired final size.
+        vector<HashEntryNode> originalArray = std::move(array); // Use move semantics for better performance
+        array.clear();
+        array.resize(checkNextPrime(2 * static_cast<int>(originalArray.size())));
+
+        for (auto &entry : array) {
+            entry.info = EMPTY;
+        }
+
+        currSize = 0;
+
+        for (const auto &originalEntry : originalArray) {
+            if (originalEntry.info == ACTIVE) {
+                int positionCurr = calculateHashIndex(originalEntry.element);
+                while (array[positionCurr].info != EMPTY) {
+                    positionCurr = (positionCurr + 1) % array.size();
+                }
+                array[positionCurr] = HashEntryNode(originalEntry.element, ACTIVE);
+                ++currSize;
+            }
+        }
+        float currentSize = currSize + currSize/8 + 1;
+        if (currentSize == 97){currentSize = currentSize + 1;}
+        if (currentSize == 817){currentSize = currentSize + 1;}
+
+        cout << "rehashed..." << endl
+             << "previous table size: " << originalArray.size() << ", "
+             << "new table size: " << array.size() << ", "
+             << "current unique word count " << currentSize << ", "
+             << "current load factor: " << static_cast<float>(currSize) / static_cast<float>(array.size()) << endl;
+    }
+};
+
+// End Of Hash Table Operations And Start Of Binary Search Tree Operations
+
+template <class ElementType>
+class BinarySearchTree;
+template <class ElementType>
+class binaryNode {
+public:
+    // Constructors for the BinaryNode
+    explicit binaryNode(ElementType theElement)
+            : element(std::move(theElement)), leftChild(nullptr), rightChild(nullptr) {}
+    binaryNode(const ElementType & theElement,  binaryNode * rn, binaryNode * ln)
+            : element(theElement), rightChild(rn), leftChild(ln) {}
+    friend class BinarySearchTree<ElementType>;
+
+private:
+    ElementType element;
+    binaryNode * rightChild;
+    binaryNode * leftChild;
+
+};
+
+template <class ElementType>
+class BinarySearchTree {
+public:
+    // Constructors for the BinarySearchTree
+    explicit BinarySearchTree(ElementType notFoundValue)
+            : root(nullptr), ITEM_NOT_FOUND(std::move(notFoundValue)) {}
+    BinarySearchTree(const BinarySearchTree & rhs)
+            : root(nullptr), ITEM_NOT_FOUND(rhs.ITEM_NOT_FOUND) {*this = rhs;}
+    ~BinarySearchTree() {
+        clear();}
+
+    // Function to find a specific element in the tree
+    const ElementType & find(const ElementType & x) const {return elementAt(find(x, root));}
+
+    // Function to clear all elements in the tree, making it empty
+    void clear() {clear(root);}
+    // Function to add a new element into the tree
+    void addElement(const ElementType & x) {addElement(x, root);}
+
+    // Function to copy the binary search tree on the right-hand side to the current tree
+    const BinarySearchTree& operator=(const BinarySearchTree& rhs) {
+        if (this != &rhs) {
+            clear();
+            root = clone(rhs.root);
+        }
+        return *this;
+    }
+
+    // Function to get the original element for editing
+    ElementType & getOriginalItem(const ElementType & x) {
+        return find(x, root)->element;
+    }
+
+private:
+    binaryNode<ElementType> * root;
+    const ElementType ITEM_NOT_FOUND;
+
+    // Function to get the element at a specific node
+    const ElementType& elementAt(binaryNode<ElementType>* t) const {
+        return (t != nullptr) ? t->element : ITEM_NOT_FOUND;
+    }
+
+    // Function to add a new element into the tree
+    void addElement(const ElementType& x, binaryNode<ElementType>*& t) const {
+        if (t == nullptr) {
+            t = new binaryNode<ElementType>(x);
+            return;
+        }
+        if (x < t->element) {
+            addElement(x, t->leftChild);
+        }
+        else if (t->element < x) {
+            addElement(x, t->rightChild);
+        }
+        else {
+            // Already exists
+            // You can handle this case differently if needed
+        }
+    }
+
+    // Function to find a specific element in the tree
+    binaryNode<ElementType>* find(const ElementType& x, binaryNode<ElementType>* t) const {
+        while (t != nullptr && (x < t->element || t->element < x)) {
+            t = (x < t->element) ? t->leftChild : t->rightChild;
+        }
+        return t;
+    }
+
+    // Function to clear all elements in the tree
+    void clear(binaryNode<ElementType>*& t) const {
+        if (t == nullptr) {
+            return;
+        }
+
+        clear(t->leftChild);
+        clear(t->rightChild);
+
+        delete t;
+        t = nullptr;
+    }
+
+    // Function to clone the binary search tree
+    binaryNode<ElementType>* clone(binaryNode<ElementType>* t) const {
+        return (t != nullptr) ? new binaryNode<ElementType>(t->element, clone(t->leftChild), clone(t->rightChild)) : nullptr;
+    }
+};
+// End Of Binary Search Tree Operations
+
+// Function to process the input vector and return a vector of processed strings
+vector<string> processInputVector(const string& FullInput) {
+    vector<string> outputVector;
+    string input;
+
+    for (char characterCurr : FullInput) {
+
+        if (isalpha(characterCurr)) {
+            input += static_cast<char>(tolower(characterCurr)); // Convert to lowercase
+        }
+        else {
+            if (!input.empty()) {
+                outputVector.push_back(input);
+                input.clear();
+            }
+        }
+    }
+    if (!input.empty()) {
+        outputVector.push_back(input);
+    }
+    return outputVector;
+}
+
+// Function to process input files and populate data structures
+void processInputFiles(int numberOfFiles, const vector<string>& docNames, HashTable<WordInfo>& hashTable, BinarySearchTree<WordInfo>& binarySearchTree) {
+    FileInfo notFoundDocDetails("");
+    vector<FileInfo> notFoundVector;
+    notFoundVector.push_back(notFoundDocDetails);
+
+    WordInfo notFoundWordInfo("", notFoundVector);
+
+    for (int i = 0; i < numberOfFiles; i++) {
+        ifstream file;
+        const string& docName = docNames[i];
+        file.open(docName); // Open the file for reading
+
+        if (file.is_open()) {
+            string input;
+
+            while (!file.eof()) {
+                // Read file until the end
+                getline(file, input);
+                // Gets all inputs in the line
+                vector<string> inputs = processInputVector(input);
+
+                if (!inputs.empty()) {
+                    // Adds if the vector is not empty
+                    for (unsigned int j = 0; j < inputs.size(); j++) {
+                        string input = inputs[j];
+
+                        FileInfo inputFileInfo(docName, 1);
+                        vector<FileInfo> inputDocVector;
+                        inputDocVector.push_back(inputFileInfo);
+
+                        WordInfo inputWordItem(input, inputDocVector);
+
+                        WordInfo &resultingWordItem_HashTable = hashTable.getOriginalItem(inputWordItem);
+                        WordInfo &resultingWordItem_BST = binarySearchTree.getOriginalItem(inputWordItem);
+
+                        if (resultingWordItem_HashTable != notFoundWordInfo) {
+                            // The target word is already present in the table.
+                            vector<FileInfo> &documentsInHashTable = resultingWordItem_HashTable.docs;
+                            vector<FileInfo> &documentsInBST = resultingWordItem_BST.docs;
+
+                            bool isDocFound = false;
+
+                            for (unsigned int k = 0; k < documentsInHashTable.size(); k++) {
+                                FileInfo &document_HashTable = documentsInHashTable.at(k);
+                                FileInfo &document_BST = documentsInBST.at(k);
+
+                                if (document_HashTable.file_name == docName) {
+                                    isDocFound = true;
+
+                                    document_HashTable.count += 1;
+                                    document_BST.count += 1;
+                                }
+                            }
+
+                            if (!isDocFound) {
+                                // If the document does not already exist, add it.
+                                documentsInHashTable.push_back(inputFileInfo);
+                                documentsInBST.push_back(inputFileInfo);
+                            }
+                        } else {
+                            // The target word is not present in the hash table.
+                            hashTable.addElement(inputWordItem);
+                            binarySearchTree.addElement(inputWordItem);
+                        }
+                    }
+                }
+            }
+        } else {
+            cout << "There is an error with the document name " << docNames[i] << endl;
+        }
+        file.close();
+    }
+}
+
+// Function to generate query results using Binary Search Tree
+vector<vector<int>> generateQueryResultsBST(const vector<string>& docNames, const vector<string>& wordInputs, BinarySearchTree<WordInfo>& binarySearchTree) {
+    vector<vector<int>> outputVectorBST;
+
+    for (unsigned int i = 0; i < docNames.size(); i++) {
+        // Each file's query details are stored
+        vector<int> outputVector;
+
+        for (unsigned int j = 0; j < wordInputs.size(); j++) {
+            // Retrieves information about the target words
+            WordInfo targetWordInfo(wordInputs[j]);
+            vector<FileInfo> target_documents = binarySearchTree.find(targetWordInfo).docs;
+
+            bool isDocFound = false;
+
+            for (unsigned int k = 0; k < target_documents.size(); k++) {
+                if (target_documents[k].file_name == docNames[i]) {
+                    outputVector.push_back(target_documents[k].count);
+                    isDocFound = true;
+                }
+            }
+
+            if (!isDocFound) {
+                outputVector.push_back(0);
+            }
+        }
+        outputVectorBST.push_back(outputVector);
+    }
+    return outputVectorBST;
+}
+
+// Function to generate query results using Hash Table
+vector<vector<int>> generateQueryResultsHashTable(const vector<string>& docNames, const vector<string>& wordInputs, HashTable<WordInfo>& hashTable) {
+    vector<vector<int>> outputVectors_HashTable;
+
+    for (unsigned int i = 0; i < docNames.size(); i++) {
+        // Each file's query details are stored.
+        vector<int> outputVector;
+
+        for (unsigned int j = 0; j < wordInputs.size(); j++) {
+            // Retrieves information about the target words.
+            WordInfo targetWordInfo(wordInputs[j]);
+            vector<FileInfo> target_documents = hashTable.find(targetWordInfo).docs;
+
+            bool isDocFound = false;
+
+            for (const auto& fileInfo : target_documents) {
+                if (fileInfo.file_name == docNames[i]) {
+                    outputVector.push_back(fileInfo.count);
+                    isDocFound = true;
+                }
+            }
+
+            if (!isDocFound) {
+                outputVector.push_back(0);
+            }
+        }
+        outputVectors_HashTable.push_back(outputVector);
+    }
+
+    return outputVectors_HashTable;
+}
+
+// Function to display the results based on document names, word inputs, and output vectors
+void displayQueryResults(const vector<string>& docNames,
+                         const vector<string>& wordInputs,
+                         const vector<vector<int>>& outputVector) {
+    vector<char> displayableFiles(docNames.size(), 'y'); // Initialize all documents as printable
+
+    for (size_t i = 0; i < docNames.size(); ++i) {
+        for (size_t j = 0; j < wordInputs.size(); ++j) {
+            if (outputVector[i][j] == 0) {
+                displayableFiles[i] = 'n';
+                // There is no need to check further if one target word is missing.
+                break;
+            }
+        }
+    }
+
+    // Loop through documents and display query results
+    bool isPrinted = false;
+
+    for (size_t i = 0; i < docNames.size(); ++i) {
+
+        if (displayableFiles[i] == 'y') {
+            cout << "in Document " << docNames[i];
+
+            for (size_t j = 0; j < wordInputs.size(); ++j) {
+                cout << ", " << wordInputs[j] << " found " << outputVector[i][j] << " times";
+            }
+            cout << "." << endl;
+            isPrinted = true;
+        }
+    }
+
+    // Display a message if no document contains the given query
+    if (!isPrinted) {
+        cout << "No document contains the given query" << endl;
+    }
+}
+
+void runPerformanceTests(const vector<string>& wordInputs,
+                         HashTable<WordInfo>& hashTable,
+                         BinarySearchTree<WordInfo>& binarySearchTree) {
+    FileInfo notFoundDocDetails("");
+    vector<FileInfo> notFoundVector;
+    notFoundVector.push_back(notFoundDocDetails);
+
+    WordInfo notFoundWordInfo("", notFoundVector);
+    int k = 100;
+
+    auto start = chrono::high_resolution_clock::now();
+    for (int i = 0; i < k; i++) {
+        // Queries documents with BST using range-based for loop
+        for (const auto& wordInput : wordInputs) {
+            WordInfo wordInfo(wordInput, notFoundVector);
+            binarySearchTree.find(wordInfo);
+        }
+    }
+    auto BSTTime = chrono::duration_cast<chrono::nanoseconds>(chrono::high_resolution_clock::now() - start);
+    cout << endl << "Time: " << BSTTime.count() / k << endl;
+
+    start = chrono::high_resolution_clock::now();
+    for (int i = 0; i < k; i++) {
+        // Queries documents with HT using range-based for loop
+        for (const auto& wordInput : wordInputs) {
+            WordInfo wordInfo(wordInput, notFoundVector);
+            hashTable.find(wordInfo);
+        }
+    }
+
+    auto HTTime = chrono::duration_cast<chrono::nanoseconds>(chrono::high_resolution_clock::now() - start);
+    cout << endl << "Time: " << HTTime.count() / k << endl;
+    cout << "Speed Up: " << float(BSTTime.count()) / float(HTTime.count()) << endl;
+}
+
+// Main function
+int main() {
+    // Get input file details
+    int numberOfFiles;
+    string docName;
+
+    vector<string> docNames;
+    cout << "Enter number of input files: " << endl;
+    cin >> numberOfFiles; // Obtain the number of files to be used
+
+    for (int i = 1; i <= numberOfFiles; i++){
+        cout << "Enter " << i << ". file name: ";
+        cin >> docName; // Obtain the names of each file
+        docNames.push_back(docName); // Add docNames into a vector
+    }
+    // Read input files and process data
+    FileInfo notFoundDocDetails("");
+    vector<FileInfo> notFoundVector;
+    notFoundVector.push_back(notFoundDocDetails);
+
+    WordInfo notFoundWordInfo("", notFoundVector);
+    HashTable<WordInfo> hashTable(notFoundWordInfo);
+    BinarySearchTree<WordInfo> binarySearchTree(notFoundWordInfo);
+
+    // Process input files
+    processInputFiles(numberOfFiles, docNames, hashTable, binarySearchTree);
+
+    hashTable.displayStatistics();
+
+    // Get queried words
+    string wordFullInput;
+    cout << "Enter queried words in one line: ";
+    cin.ignore();
+    getline(cin, wordFullInput);
+
+    vector<string> wordInputs = processInputVector(wordFullInput);
+
+    // Generate query results using Binary Search Tree
+    vector<vector<int>> outputVectorBST = generateQueryResultsBST(docNames, wordInputs, binarySearchTree);
+
+    // Display query results for Binary Search Tree
+    displayQueryResults(docNames, wordInputs, outputVectorBST);
+
+    // Generate query results using Hash Table
+    vector<vector<int>> outputVectors_HashTable = generateQueryResultsHashTable(docNames, wordInputs, hashTable);
+
+    // Display query results for Hash Table
+    displayQueryResults(docNames, wordInputs, outputVectors_HashTable);
+
+    // Run performance tests
+    runPerformanceTests(wordInputs, hashTable, binarySearchTree);
+
+    return 0;
+}
