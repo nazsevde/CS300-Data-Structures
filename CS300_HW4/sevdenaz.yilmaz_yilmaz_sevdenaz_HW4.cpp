@@ -2,12 +2,6 @@
 // CS Homework #4 - Search Engine V3
 // Sevdenaz Yilmaz 30300
 //
-//*****
-//
-// Kod dosya isimlerini aldiktan sonra kelime sorgulamak icin biraz bekletiyor.
-// Calismiyor zannedilmesin diye not dustum.
-//
-//*****
 
 #include <iostream>
 #include <string>
